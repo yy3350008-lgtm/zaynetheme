@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ZayneTheme · 4 Living Cosmos Engines</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #06060f; color: #f5f5f7;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    transition: background-color 0.6s ease;
+  }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #gl { display: none; z-index: 0; }
+  #c { z-index: 1; pointer-events: none; }
+  .hud {
+    position: fixed; inset: 0; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: clamp(14px, 3vw, 28px) clamp(14px, 3.5vw, 34px);
+    gap: 16px; z-index: 2;
+    transition: opacity 0.25s ease;
+  }
+  body.hud-hidden .hud { opacity: 0; }
+  body.hud-hidden .hud * { pointer-events: none !important; }
+  .card {
+    pointer-events: auto;
+    background: rgba(10, 10, 16, 0.54);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    padding: 14px 18px;
+    width: min(440px, 100%);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.55);
+  }
+  .kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; opacity: 0.72; margin-bottom: 4px; }
+  .title { font-size: clamp(17px, 2.2vw, 20px); font-weight: 700; margin-bottom: 5px; letter-spacing: -0.01em; }
+  .desc { font-size: 12.5px; line-height: 1.55; opacity: 0.84; }
+  .hint { margin-top: 8px; font-size: 11px; opacity: 0.56; letter-spacing: 0.03em; }
+  .dock {
+    pointer-events: auto;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+    background: rgba(8, 8, 14, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 999px;
+    padding: 6px;
+    max-width: 100%;
+    align-self: center;
+  }
+  .btn {
+    border: 0; cursor: pointer; white-space: nowrap;
+    padding: 7px 14px; border-radius: 999px;
+    background: transparent; color: rgba(245,245,247,0.74);
+    font-size: 12px; font-weight: 600;
+    transition: all 0.22s ease;
+  }
+  .btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+  .btn.active { color: #08070a; background: var(--acc, #e5a95c); box-shadow: 0 0 18px var(--acc-glow, rgba(229,169,92,0.45)); }
+  @media (max-width: 640px) {
+    .dock { border-radius: 16px; }
+    .btn { font-size: 11.5px; padding: 6px 11px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="c"></canvas>
+<div class="hud">
+  <div>
+    <div class="card">
+      <div class="kicker" id="kicker"></div>
+      <div class="title" id="title"></div>
+      <div class="desc" id="desc"></div>
+      <div class="hint" id="hint">Keys: 1–4 Switch · ←/→ Cycle · H Hide HUD · Space Pause</div>
+    </div>
+  </div>
+  <div class="dock" id="dock"></div>
+</div>
+<script>
+const MODES = [
+  {
+    id: "orbital",
+    name: "1. 三重宏大星轨 · Obsidian",
+    kicker: "Engine 01 · 3D Depth Astrolabe & Comet Ribbons",
+    title: "Zayne Obsidian Gold",
+    desc: "景深分层三维星轨、精密星盘刻度内环与丝滑彗星光带，远角星辰微连点缀。",
+    bg: "#07060a", acc: "#e5a95c", sec: "#d97757"
+  },
+  {
+    id: "rain",
+    name: "2. 幽林萤火境 · Moss",
+    kicker: "Engine 02 · Moonlight Shafts & Pond Reflections",
+    title: "Zayne Moss Dusk",
+    desc: "月光丁达尔光柱穿透深林夜雾，丝带尾迹萤火在水面映出柔波倒影与透视双环涟漪。",
+    bg: "#040a09", acc: "#5eead4", sec: "#d97757"
+  },
+  {
+    id: "blackhole",
+    name: "3. 银白视界黑洞 · Event Horizon",
+    kicker: "Engine 03 · 3D Geodesic Raymarched Singularity",
+    title: "Zayne Silver Singularity",
+    desc: "真三维广义相对论光线追踪黑洞：D形穹顶视界阴影、银白引力透镜拱环与缓缓席卷前景的潮汐星河。",
+    bg: "#040406", acc: "#e5e7eb", sec: "#94a3b8"
+  },
+  {
+    id: "prism",
+    name: "4. 棱镜晶格 · Astral",
+    kicker: "Engine 04 · Volumetric Prism & Crystal Lattice",
+    title: "Zayne Astral Prism",
+    desc: "深空星幕之上的斜切体积棱镜光束与六边形能量晶格，光波随指针呼吸点亮。",
+    bg: "#040811", acc: "#22d3ee", sec: "#a78bfa"
+  }
+];
+
+const c2d = document.getElementById("c"), ctx = c2d.getContext("2d");
+const cgl = document.getElementById("gl");
+const dock = document.getElementById("dock");
+let W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+let curIdx = 0, t = 0, lastFrame = 0, paused = false;
+const pointer = { x: -9999, y: -9999, nx: 0.5, ny: 0.5, active: false };
+const smoothMouse = { x: 0.5, y: 0.5 };
+const ripples = [];
+let bgStars = [], cornerStars = [], ringComets = [], drops = [], fireflies = [], hexNodes = [], bhConstellation = [];
+
+function hexToRgb(h) {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// ==================== WebGL 3D Geodesic Raymarched Black Hole (#3) ====================
+const gl = cgl.getContext("webgl", { antialias: true, alpha: false });
+let glProg = null, glUniforms = {};
+window.__glReady = false;
+const GL_VS = `attribute vec2 p; void main(){ gl_Position = vec4(p,0.0,1.0); }`;
+const GL_FS = `
+  precision highp float;
+  uniform vec2 u_res;
+  uniform float u_time;
+  uniform vec2 u_mouse;
+
+  float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+  float noise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    return mix(mix(hash(i), hash(i+vec2(1,0)), f.x),
+               mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+  }
+  float fbm(vec2 p){
+    float v = 0.0, a = 0.5;
+    mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+    for(int i=0;i<5;i++){ v += a*noise(p); p = rot*p*2.03; a *= 0.5; }
+    return v;
+  }
+
+  void main(){
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / min(u_res.x, u_res.y);
+    vec2 suv = uv - vec2(-0.14, 0.04);
+
+    float roll = -0.20;
+    mat2 rRoll = mat2(cos(roll), -sin(roll), sin(roll), cos(roll));
+    suv = rRoll * suv;
+
+    vec2 mOff = (u_mouse - 0.5) * 0.22;
+    vec3 ro = vec3(mOff.x * 0.6, 2.15 + mOff.y * 0.35, -14.2);
+    vec3 fwd = normalize(-ro);
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
+    vec3 up = cross(fwd, right);
+    vec3 rd = normalize(fwd * 1.62 + right * suv.x + up * suv.y);
+
+    vec3 pos = ro;
+    vec3 vel = rd;
+    float rs = 0.34;
+    vec3 accum = vec3(0.0);
+    float captured = 0.0;
+    float minR = 99.0;
+
+    for(int i = 0; i < 140; i++){
+      float r2 = dot(pos, pos);
+      float r = sqrt(r2);
+      minR = min(minR, r);
+
+      if(r < rs){
+        captured = 1.0;
+        break;
+      }
+      if(r > 26.0 && dot(pos, vel) > 0.0){
+        break;
+      }
+
+      vec3 L = cross(pos, vel);
+      float h2 = dot(L, L);
+      vec3 accel = -1.5 * rs * h2 * pos / pow(r2 + 0.0005, 2.5);
+      float h = clamp((r - rs * 0.85) * 0.085, 0.018, 0.30);
+      vec3 nextPos = pos + vel * h + 0.5 * accel * h * h;
+      vel = normalize(vel + accel * h);
+
+      if((pos.y > 0.0 && nextPos.y <= 0.0) || (pos.y < 0.0 && nextPos.y >= 0.0)){
+        float frac = abs(pos.y) / max(abs(pos.y) + abs(nextPos.y), 1e-5);
+        vec3 hit = mix(pos, nextPos, frac);
+        float hr = length(hit.xz);
+        if(hr > rs * 1.55 && hr < 12.0){
+          float slowT = u_time * 0.055;
+          float twist = 4.6 / pow(max(hr, 0.25), 0.62) - slowT;
+          mat2 sw = mat2(cos(twist), -sin(twist), sin(twist), cos(twist));
+          vec2 sp = sw * hit.xz;
+          float f1 = fbm(sp * 1.15);
+          float f2 = fbm(sp * 2.9 + vec2(3.7, -1.9));
+          float ringTex = fbm(vec2(hr * 5.5, f1 * 3.2));
+          float streaks = smoothstep(0.22, 0.80, f1 * 0.45 + f2 * 0.25 + ringTex * 0.30);
+
+          float armTwist = 2.8 / pow(max(hr, 0.3), 0.55) - slowT;
+          vec2 armDir = vec2(cos(armTwist), sin(armTwist));
+          float align = max(dot(normalize(hit.xz), armDir), 0.0);
+          float tidalArm = pow(align, 7.0) * smoothstep(rs * 2.2, rs * 5.5, hr) * smoothstep(11.5, 4.0, hr);
+
+          float radial = smoothstep(rs * 1.55, rs * 2.4, hr) * smoothstep(12.0, 2.2, hr);
+          float innerRim = exp(-(hr - rs * 1.58) * 1.8) * 1.15;
+          float doppler = clamp(1.0 + 0.36 * (-hit.x / max(hr, 0.25)), 0.58, 1.42);
+
+          float lum = (radial * (0.14 + 0.90 * streaks) + tidalArm * 0.95 + innerRim * 0.55) * doppler;
+          vec3 cWhite = vec3(0.97, 0.98, 1.00);
+          vec3 cSilver = vec3(0.60, 0.63, 0.69);
+          vec3 sampleCol = mix(cSilver, cWhite, clamp(lum * 0.95 + tidalArm * 0.55, 0.0, 1.0));
+          accum += sampleCol * lum * 0.92;
+        }
+      }
+      pos = nextPos;
+    }
+
+    vec3 col = accum;
+    if(captured < 0.5){
+      float photon = exp(-pow(max(minR - rs * 1.48, 0.0) / 0.075, 2.0));
+      col += vec3(0.96, 0.98, 1.0) * photon * 0.85;
+
+      vec3 dir = normalize(vel);
+      float mwBand = exp(-pow((dir.y - 0.14 - 0.07 * sin(dir.x * 2.6)) / 0.17, 2.0));
+      float dust = fbm(dir.xy * 7.5 + vec2(u_time * 0.004, 0.0));
+      vec3 bg = vec3(0.010, 0.011, 0.015);
+      bg += vec3(0.24, 0.26, 0.30) * mwBand * pow(dust, 1.55) * 0.95;
+
+      vec2 starGrid = dir.xy * 120.0;
+      float sh = hash(floor(starGrid));
+      if(sh > 0.974){
+        float sd = length(fract(starGrid) - 0.5);
+        float tw = 0.68 + 0.32 * sin(u_time * 1.3 + sh * 35.0);
+        bg += vec3(0.92, 0.94, 0.98) * smoothstep(0.18, 0.0, sd) * tw * (0.4 + 0.6 * mwBand);
+      }
+      col += bg;
+    }
+
+    col = col / (1.0 + col * 0.62);
+    col = pow(max(col, 0.0), vec3(0.95));
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+function initBlackHoleGl() {
+  if (!gl || window.__glReady) return;
+  function compile(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error("Shader compile error:", gl.getShaderInfoLog(s));
+      return null;
+    }
+    return s;
+  }
+  const s1 = compile(gl.VERTEX_SHADER, GL_VS), s2 = compile(gl.FRAGMENT_SHADER, GL_FS);
+  if (s1 && s2) {
+    glProg = gl.createProgram();
+    gl.attachShader(glProg, s1); gl.attachShader(glProg, s2);
+    gl.linkProgram(glProg);
+    if (gl.getProgramParameter(glProg, gl.LINK_STATUS)) {
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(glProg, "p");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      glUniforms = {
+        res: gl.getUniformLocation(glProg, "u_res"),
+        time: gl.getUniformLocation(glProg, "u_time"),
+        mouse: gl.getUniformLocation(glProg, "u_mouse"),
+      };
+      window.__glReady = true;
+    }
+  }
+}
+initBlackHoleGl();
+cgl.addEventListener("webglcontextlost", (e) => {
+  e.preventDefault();
+  window.__glReady = false;
+  cgl.style.display = "none";
+});
+cgl.addEventListener("webglcontextrestored", () => {
+  initBlackHoleGl();
+  if (curIdx === 2 && window.__glReady) cgl.style.display = "block";
+});
+
+function buildState() {
+  bgStars = Array.from({ length: 120 }, () => ({
+    x: Math.random() * W, y: Math.random() * H,
+    r: 0.45 + Math.random() * 1.0,
+    p: Math.random() * Math.PI * 2, s: 0.5 + Math.random() * 1.1
+  }));
+
+  // #1 Far-corner constellation stars + 3 grand macro comet orbits
+  cornerStars = [];
+  for (let i = 0; i < 24; i++) {
+    const sideX = i % 2 === 0 ? Math.random() * 0.24 : 0.76 + Math.random() * 0.24;
+    const sideY = (i % 4 < 2) ? Math.random() * 0.28 : 0.72 + Math.random() * 0.28;
+    cornerStars.push({
+      x: sideX * W, y: sideY * H,
+      r: 0.7 + Math.random() * 1.1,
+      p: Math.random() * Math.PI * 2
+    });
+  }
+
+  ringComets = [
+    { orbit: 0, angle: 0.55, speed:  0.0024, size: 3.8, color: "#fff9eb" },
+    { orbit: 0, angle: 3.69, speed:  0.0024, size: 2.5, color: "#e5a95c" },
+    { orbit: 1, angle: 1.72, speed: -0.0019, size: 3.6, color: "#fff9eb" },
+    { orbit: 1, angle: 4.86, speed: -0.0019, size: 2.4, color: "#d97757" },
+    { orbit: 2, angle: 2.38, speed:  0.0029, size: 3.3, color: "#fff9eb" },
+    { orbit: 2, angle: 5.52, speed:  0.0029, size: 2.3, color: "#e5a95c" },
+  ];
+
+  drops = Array.from({ length: 30 }, (_, i) => ({
+    x: Math.random() * W, y: Math.random() * H,
+    len: 32 + Math.random() * 48,
+    vy: 0.36 + Math.random() * 0.48,
+    size: 0.8 + Math.random() * 0.65,
+    warm: i % 5 === 0
+  }));
+
+  // #2 Fireflies with 10-point silk trail history
+  fireflies = Array.from({ length: 46 }, (_, i) => {
+    const depth = i < 12 ? 2 : (i < 30 ? 1 : 0);
+    const fx = Math.random() * W, fy = Math.random() * H;
+    return {
+      x: fx, y: fy,
+      vx: (Math.random() - 0.5) * (0.09 + depth * 0.07),
+      vy: -0.05 - Math.random() * (0.08 + depth * 0.07),
+      r: depth === 2 ? (4.2 + Math.random() * 3.8) : (depth === 1 ? (1.9 + Math.random() * 1.8) : (0.9 + Math.random() * 0.8)),
+      depth, phase: Math.random() * Math.PI * 2,
+      warm: i % 4 === 0,
+      history: Array.from({ length: 8 }, (_, k) => ({
+        x: fx - (7 - k) * 2.4,
+        y: fy + (7 - k) * 1.5
+      })),
+      tick: 0
+    };
+  });
+
+  // #3 Connected constellation strictly in outer deep space (dist > minDim * 0.34)
+  const minDim = Math.min(W, H);
+  const bhCx = W * 0.5 - minDim * 0.11, bhCy = H * 0.5 + minDim * 0.06;
+  bhConstellation = [];
+  for (let i = 0; i < 42; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = minDim * (0.38 + Math.random() * 0.46);
+    bhConstellation.push({
+      ang, dist,
+      speed: 0.00018 + Math.random() * 0.00025,
+      r: 0.8 + Math.random() * 1.15,
+      warm: i % 3 === 0,
+      x: bhCx + Math.cos(ang) * dist,
+      y: bhCy + Math.sin(ang) * dist
+    });
+  }
+
+  hexNodes = [];
+  const R = 50, dx = R * 1.5, dy = R * Math.sqrt(3);
+  for (let col = -1; col < W / dx + 2; col++) {
+    for (let row = -1; row < H / dy + 2; row++) {
+      const hx = col * dx, hy = row * dy + (col % 2 ? dy * 0.5 : 0);
+      hexNodes.push({ cx: hx, cy: hy, energy: 0, phase: col * 0.35 + row * 0.28 });
+    }
+  }
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  c2d.width = W * dpr; c2d.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cgl.width = W * dpr; cgl.height = H * dpr;
+  if (gl) gl.viewport(0, 0, cgl.width, cgl.height);
+  buildState();
+}
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resize, 60);
+});
+resize();
+
+function setMode(idx) {
+  curIdx = idx;
+  const m = MODES[idx];
+  document.body.style.backgroundColor = m.bg;
+  document.documentElement.style.setProperty("--acc", m.acc);
+  document.documentElement.style.setProperty("--acc-glow", m.acc + "77");
+  document.getElementById("kicker").textContent = m.kicker;
+  document.getElementById("title").textContent = m.title;
+  document.getElementById("desc").textContent = m.desc;
+  [...dock.children].forEach((b, i) => b.classList.toggle("active", i === idx));
+  cgl.style.display = (idx === 2 && window.__glReady) ? "block" : "none";
+  c2d.style.display = "block";
+}
+MODES.forEach((m, i) => {
+  const b = document.createElement("button");
+  b.className = "btn"; b.textContent = m.name;
+  b.onclick = () => setMode(i);
+  dock.appendChild(b);
+});
+setMode(0);
+
+function updatePointer(cx, cy, spawnMove) {
+  pointer.x = cx; pointer.y = cy;
+  pointer.nx = cx / Math.max(W, 1);
+  pointer.ny = cy / Math.max(H, 1);
+  pointer.active = true;
+  if (spawnMove && curIdx !== 0 && curIdx !== 2 && Math.random() < (curIdx === 1 ? 0.12 : 0.20)) {
+    ripples.push({ x: cx, y: cy, r: 4, maxR: curIdx === 1 ? 135 : 155, a: curIdx === 1 ? 0.36 : 0.50 });
+    if (ripples.length > 10) ripples.shift();
+  }
+}
+window.addEventListener("mousemove", (e) => updatePointer(e.clientX, e.clientY, true), { passive: true });
+window.addEventListener("touchmove", (e) => {
+  if (e.touches[0]) updatePointer(e.touches[0].clientX, e.touches[0].clientY, true);
+}, { passive: true });
+window.addEventListener("mousedown", (e) => {
+  if (curIdx !== 0 && curIdx !== 2) {
+    ripples.push({ x: e.clientX, y: e.clientY, r: 6, maxR: 250, a: 0.78 });
+    if (ripples.length > 12) ripples.shift();
+  }
+});
+window.addEventListener("touchstart", (e) => {
+  const touch = e.touches[0];
+  if (!touch) return;
+  updatePointer(touch.clientX, touch.clientY, false);
+  if (curIdx !== 0 && curIdx !== 2) {
+    ripples.push({ x: touch.clientX, y: touch.clientY, r: 6, maxR: 250, a: 0.78 });
+    if (ripples.length > 12) ripples.shift();
+  }
+}, { passive: true });
+window.addEventListener("mouseleave", () => { pointer.active = false; });
+window.addEventListener("touchend", () => { pointer.active = false; });
+window.addEventListener("keydown", (e) => {
+  if (e.key >= "1" && e.key <= "4") setMode(Number(e.key) - 1);
+  else if (e.key === "ArrowRight") setMode((curIdx + 1) % MODES.length);
+  else if (e.key === "ArrowLeft") setMode((curIdx - 1 + MODES.length) % MODES.length);
+  else if (e.key === "h" || e.key === "H") document.body.classList.toggle("hud-hidden");
+  else if (e.code === "Space") { e.preventDefault(); paused = !paused; }
+});
+
+function drawBgStars(breath, tint) {
+  for (const s of bgStars) {
+    const tw = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(t * s.s + s.p));
+    ctx.globalAlpha = 0.12 + tw * 0.36 * breath;
+    ctx.fillStyle = tint || "#e2e8f0";
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawFourPointFlare(x, y, size, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "#fff9eb";
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(x - size, y); ctx.lineTo(x + size, y);
+  ctx.moveTo(x, y - size); ctx.lineTo(x, y + size);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function orbitPoint(cx, cy, ob, ang) {
+  const lx = Math.cos(ang) * ob.rx, ly = Math.sin(ang) * ob.ry;
+  return {
+    x: cx + lx * Math.cos(ob.tilt) - ly * Math.sin(ob.tilt),
+    y: cy + lx * Math.sin(ob.tilt) + ly * Math.cos(ob.tilt)
+  };
+}
+
+// #1 3D Depth-Shaded Astrolabe & Tapered Star-Flare Comets (no mouse wobble)
+function renderOrbital(m, breath) {
+  drawBgStars(breath, "#f5ecd8");
+  const minDim = Math.min(W, H);
+  const cx = W * 0.52, cy = H * 0.50;
+  const c1 = hexToRgb(m.acc), c2 = hexToRgb(m.sec);
+
+  // Subtle far-corner connected constellation micro-stars
+  const maxC = minDim * 0.22;
+  ctx.lineWidth = 0.55;
+  for (let i = 0; i < cornerStars.length; i++) {
+    const a = cornerStars[i];
+    for (let j = i + 1; j < cornerStars.length; j++) {
+      const b = cornerStars[j];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < maxC) {
+        ctx.strokeStyle = m.acc;
+        ctx.globalAlpha = (1 - d / maxC) * 0.14 * breath;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = "#f5ecd8";
+    ctx.globalAlpha = 0.35 + 0.25 * Math.sin(t + a.p);
+    ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Warm central core nebula
+  const g = ctx.createRadialGradient(cx, cy, 3, cx, cy, minDim * 0.52);
+  g.addColorStop(0, `rgba(${c1[0]},${c1[1]},${c1[2]},${0.26 * breath})`);
+  g.addColorStop(0.35, `rgba(${c2[0]},${c2[1]},${c2[2]},${0.08 * breath})`);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  const orbits = [
+    { rx: Math.max(W * 0.44, minDim * 0.55), ry: minDim * 0.21, tilt: -0.42, dash: [], col: m.acc },
+    { rx: Math.max(W * 0.39, minDim * 0.49), ry: minDim * 0.19, tilt:  0.38, dash: [5, 10], col: m.sec },
+    { rx: Math.max(W * 0.33, minDim * 0.43), ry: minDim * 0.17, tilt:  1.12, dash: [], col: m.acc },
+  ];
+
+  // 1) Back halves (sin(theta) < 0 -> PI .. 2*PI) behind central star
+  for (const ob of orbits) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ob.tilt);
+    ctx.setLineDash(ob.dash);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, ob.rx, ob.ry, 0, Math.PI, Math.PI * 2);
+    ctx.strokeStyle = ob.col;
+    ctx.globalAlpha = 0.13;
+    ctx.lineWidth = 0.75;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // 2) Inner astrolabe degree-tick ring (36 ticks) & multi-layered champagne-gold central star
+  const astR = minDim * 0.11;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(t * 0.04);
+  ctx.strokeStyle = m.acc;
+  ctx.globalAlpha = 0.20 * breath;
+  ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(0, 0, astR, 0, Math.PI * 2); ctx.stroke();
+  for (let k = 0; k < 36; k++) {
+    const a = (k / 36) * Math.PI * 2;
+    const len = k % 3 === 0 ? 6.5 : 3.2;
+    ctx.globalAlpha = k % 3 === 0 ? 0.34 : 0.16;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * (astR - len), Math.sin(a) * (astR - len));
+    ctx.lineTo(Math.cos(a) * astR, Math.sin(a) * astR);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const sg = ctx.createRadialGradient(cx, cy, 0, cx, cy, 24);
+  sg.addColorStop(0, "rgba(255,249,235,0.95)");
+  sg.addColorStop(0.35, `rgba(${c1[0]},${c1[1]},${c1[2]},0.45)`);
+  sg.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.globalAlpha = 1; ctx.fillStyle = sg;
+  ctx.beginPath(); ctx.arc(cx, cy, 24, 0, Math.PI * 2); ctx.fill();
+  drawFourPointFlare(cx, cy, 14 + 3 * breath, 0.55 * breath);
+
+  // 3) Front halves (sin(theta) >= 0 -> 0 .. PI) in crisp golden glow
+  for (const ob of orbits) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ob.tilt);
+    ctx.setLineDash(ob.dash);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, ob.rx, ob.ry, 0, 0, Math.PI);
+    ctx.strokeStyle = ob.col;
+    ctx.globalAlpha = 0.42;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // 4) Smooth 28-segment tapered luminous comet ribbon arcs + star-head flare
+  for (const b of ringComets) {
+    b.angle += b.speed;
+    const ob = orbits[b.orbit];
+    const dirSign = b.speed >= 0 ? 1 : -1;
+    const steps = 28;
+    const arcSpan = 0.24 * dirSign;
+
+    let prev = orbitPoint(cx, cy, ob, b.angle - arcSpan);
+    ctx.lineCap = "round";
+    for (let s = 1; s <= steps; s++) {
+      const k = s / steps;
+      const cur = orbitPoint(cx, cy, ob, b.angle - arcSpan * (1 - k));
+      ctx.strokeStyle = k > 0.72 ? "#fff9eb" : ob.col;
+      ctx.globalAlpha = Math.pow(k, 1.8) * 0.85;
+      ctx.lineWidth = 0.2 + k * (b.size * 0.85);
+      ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(cur.x, cur.y); ctx.stroke();
+      prev = cur;
+    }
+
+    const head = orbitPoint(cx, cy, ob, b.angle);
+    const hg = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, b.size * 4.2);
+    hg.addColorStop(0, "rgba(255,249,235,0.95)");
+    hg.addColorStop(0.4, `rgba(${c1[0]},${c1[1]},${c1[2]},0.38)`);
+    hg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalAlpha = 1; ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(head.x, head.y, b.size * 4.2, 0, Math.PI * 2); ctx.fill();
+    if (b.size > 3.2) {
+      drawFourPointFlare(head.x, head.y, b.size * 2.6, 0.65);
+    }
+  }
+}
+
+// #2 Crepuscular Moonlight Shafts, Silk-Trail Fireflies & Mirrored Pond Reflections
+function renderRain(m, breath) {
+  const c1 = hexToRgb(m.acc), c2 = hexToRgb(m.sec);
+
+  // Feathered diagonal moonlight / jade Tyndall shafts (zero hard polygon edges)
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for (let i = 0; i < 3; i++) {
+    const cxBeam = W * (0.46 + i * 0.21) + Math.sin(t * 0.22 + i) * 24;
+    const halfW = 110 + i * 30;
+    const peakA = (0.075 - i * 0.012) * breath;
+    ctx.save();
+    ctx.translate(cxBeam, 0);
+    ctx.transform(1, 0, -0.45, 1, 0, 0);
+    const hg = ctx.createLinearGradient(-halfW, 0, halfW, 0);
+    hg.addColorStop(0, "rgba(0,0,0,0)");
+    hg.addColorStop(0.5, `rgba(${c1[0]},${c1[1]},${c1[2]},${peakA})`);
+    hg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = hg;
+    ctx.fillRect(-halfW, 0, halfW * 2, H * 0.76);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Pond water horizon at bottom 26%
+  const wy = H * 0.74;
+  const wg = ctx.createLinearGradient(0, wy, 0, H);
+  wg.addColorStop(0, "rgba(4,10,9,0)");
+  wg.addColorStop(0.18, `rgba(${c1[0]},${c1[1]},${c1[2]},${0.09 * breath})`);
+  wg.addColorStop(1, `rgba(${c2[0]},${c2[1]},${c2[2]},${0.07 * breath})`);
+  ctx.globalAlpha = 1; ctx.fillStyle = wg; ctx.fillRect(0, wy, W, H - wy);
+
+  // Subtle hairline water horizon shimmer
+  ctx.strokeStyle = m.acc; ctx.globalAlpha = 0.10 * breath; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, wy); ctx.lineTo(W, wy); ctx.stroke();
+
+  // Slow raindrops spawning dual concentric perspective ripples on water surface
+  for (const d of drops) {
+    d.y += d.vy;
+    if (d.y > wy + 16) {
+      d.y = -d.len; d.x = Math.random() * W;
+      if (Math.random() < 0.28) {
+        ripples.push({ x: d.x, y: wy + 8 + Math.random() * (H - wy - 18), r: 2, maxR: 85, a: 0.34 });
+      }
+    }
+    const grad = ctx.createLinearGradient(d.x, d.y - d.len, d.x, d.y);
+    grad.addColorStop(0, "transparent"); grad.addColorStop(1, d.warm ? m.sec : m.acc);
+    ctx.globalAlpha = 0.22 + 0.14 * breath;
+    ctx.strokeStyle = grad; ctx.lineWidth = d.size;
+    ctx.beginPath(); ctx.moveTo(d.x, d.y - d.len); ctx.lineTo(d.x, d.y); ctx.stroke();
+  }
+
+  // Update fireflies & record 10-point silk trail history
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const f of fireflies) {
+    f.x += f.vx + Math.sin(t * 0.4 + f.phase) * 0.14;
+    f.y += f.vy;
+    if (pointer.active) {
+      const dx = f.x - pointer.x, dy = f.y - pointer.y, dist = Math.hypot(dx, dy);
+      if (dist < 150 && dist > 1) { f.x += (dx / dist) * 0.85; f.y += (dy / dist) * 0.85; }
+    }
+    if (f.y < -25) { f.y = wy + 20; f.x = Math.random() * W; f.history = []; }
+    if (f.x < -25) { f.x = W + 25; f.history = []; }
+    if (f.x > W + 25) { f.x = -25; f.history = []; }
+
+    f.tick++;
+    if (f.depth >= 1 && f.tick % 2 === 0) {
+      f.history.push({ x: f.x, y: f.y });
+      if (f.history.length > 10) f.history.shift();
+    }
+
+    const glow = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 0.9 + f.phase));
+    const col = f.warm ? c2 : c1;
+
+    // 10-point curved silk trail for mid/foreground fireflies
+    if (f.history.length > 1) {
+      for (let k = 1; k < f.history.length; k++) {
+        const p0 = f.history[k - 1], p1 = f.history[k];
+        const frac = k / f.history.length;
+        ctx.strokeStyle = f.warm ? m.sec : m.acc;
+        ctx.globalAlpha = frac * 0.36 * glow;
+        ctx.lineWidth = frac * (f.depth === 2 ? 2.2 : 1.3);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+    }
+
+    const rad = f.r * (f.depth === 2 ? 6.2 : 4.2);
+    const fg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, rad);
+    fg.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${(f.depth === 2 ? 0.36 : 0.60) * glow})`);
+    fg.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},0.10)`);
+    fg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalAlpha = 1; ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rad, 0, Math.PI * 2); ctx.fill();
+
+    // Crisp pinpoint core
+    ctx.fillStyle = "#f0fdfa"; ctx.globalAlpha = 0.85 * glow;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.depth === 2 ? 1.5 : 0.9, 0, Math.PI * 2); ctx.fill();
+
+    // Soft mirrored shimmer on the pond surface for fireflies above horizon
+    if (f.y < wy && wy - f.y < H * 0.45 && f.depth >= 1) {
+      const distRatio = 1 - (wy - f.y) / (H * 0.45);
+      const ry = wy + (wy - f.y) * 0.42;
+      const rx = f.x + Math.sin(t * 2.2 + f.phase) * 8;
+      const rw = (f.r * 5.0) * (1.2 + (1 - distRatio));
+      const rh = f.r * 1.4;
+      ctx.fillStyle = f.warm ? m.sec : m.acc;
+      ctx.globalAlpha = 0.16 * distRatio * glow;
+      ctx.beginPath(); ctx.ellipse(rx, ry, rw, rh, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// #3 Outer deep-space connected constellation around the 3D raymarched Black Hole
+function renderBlackHoleConstellation(m, breath) {
+  const minDim = Math.min(W, H);
+  const cx = W * 0.5 - minDim * 0.18, cy = H * 0.5 + minDim * 0.05;
+  for (const p of bhConstellation) {
+    p.ang += p.speed;
+    let x = cx + Math.cos(p.ang) * p.dist;
+    let y = cy + Math.sin(p.ang) * p.dist;
+    if (pointer.active) {
+      const dx = x - pointer.x, dy = y - pointer.y, d = Math.hypot(dx, dy);
+      if (d < 155 && d > 1) {
+        const push = (1 - d / 155) * 20;
+        x += (dx / d) * push; y += (dy / d) * push;
+      }
+    }
+    p.x = x; p.y = y;
+  }
+
+  ctx.lineWidth = 0.6;
+  const maxLink = minDim * 0.20;
+  for (let i = 0; i < bhConstellation.length; i++) {
+    const a = bhConstellation[i];
+    for (let j = i + 1; j < bhConstellation.length; j++) {
+      const b = bhConstellation[j];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < maxLink) {
+        ctx.strokeStyle = "rgba(229,231,235,1)";
+        ctx.globalAlpha = (1 - d / maxLink) * 0.18 * breath;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+  }
+  for (const p of bhConstellation) {
+    ctx.fillStyle = p.warm ? "#f3f4f6" : "#94a3b8";
+    ctx.globalAlpha = 0.42 + 0.35 * breath;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// #4 Kept untouched as requested
+function renderPrism(m, breath) {
+  drawBgStars(breath, "#dbeafe");
+  const c1 = hexToRgb(m.acc), c2 = hexToRgb(m.sec);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const shift = Math.sin(t * 0.45 + i * 1.4) * 85;
+    const x0 = W * (0.14 + i * 0.23) + shift;
+    const grad = ctx.createLinearGradient(x0, 0, x0 + 250, H);
+    const col = i % 2 === 0 ? c1 : c2;
+    grad.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+    grad.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},${0.14 * breath})`);
+    grad.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(x0 - 70, 0); ctx.lineTo(x0 + 115, 0);
+    ctx.lineTo(x0 + 365, H); ctx.lineTo(x0 + 180, H);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  const R = 50;
+  for (const h of hexNodes) {
+    let target = (Math.sin(t * 1.0 + h.phase) * 0.5 + 0.5) * 0.24;
+    if (pointer.active) {
+      const d = Math.hypot(h.cx - pointer.x, h.cy - pointer.y);
+      if (d < 220) target = Math.max(target, 1 - d / 220);
+    }
+    h.energy += (target - h.energy) * 0.14;
+    if (h.energy < 0.05) continue;
+
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = (Math.PI / 3) * k;
+      const px = h.cx + Math.cos(a) * (R * 0.86);
+      const py = h.cy + Math.sin(a) * (R * 0.86);
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = h.energy > 0.5 ? m.acc : m.sec;
+    ctx.globalAlpha = 0.09 + h.energy * 0.58;
+    ctx.lineWidth = 0.8 + h.energy * 1.3;
+    ctx.stroke();
+
+    if (h.energy > 0.35) {
+      ctx.fillStyle = h.energy > 0.7 ? "#ffffff" : m.acc;
+      ctx.globalAlpha = h.energy * 0.85;
+      ctx.beginPath(); ctx.arc(h.cx, h.cy, 1.6 + h.energy * 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+function renderBlackHoleFallback(m, breath) {
+  const minDim = Math.min(W, H);
+  const cx = W * 0.5 - minDim * 0.14, cy = H * 0.5 + minDim * 0.04;
+  const rHorizon = minDim * 0.095;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.2);
+  const halo = ctx.createRadialGradient(0, 0, rHorizon * 0.9, 0, 0, minDim * 0.34);
+  halo.addColorStop(0, `rgba(245,247,250,${0.55 * breath})`);
+  halo.addColorStop(0.28, `rgba(180,190,206,${0.25 * breath})`);
+  halo.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.ellipse(0, 0, minDim * 0.44, minDim * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = `rgba(243,244,246,${0.7 * breath})`; ctx.lineWidth = 2.2;
+  ctx.beginPath(); ctx.arc(0, 0, rHorizon * 1.15, Math.PI, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = "rgba(229,231,235,0.45)"; ctx.lineWidth = 3.2;
+  ctx.beginPath(); ctx.ellipse(0, 0, rHorizon * 2.9, rHorizon * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = "#000000"; ctx.beginPath(); ctx.arc(0, 0, rHorizon, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (document.hidden || paused) return;
+  if (now - lastFrame < 24) return;
+  lastFrame = now;
+  t += 0.02;
+
+  smoothMouse.x += (pointer.nx - smoothMouse.x) * 0.05;
+  smoothMouse.y += (pointer.ny - smoothMouse.y) * 0.05;
+
+  const breath = 0.68 + 0.32 * (0.5 + 0.5 * Math.sin(t * 0.95));
+  const m = MODES[curIdx];
+
+  if (curIdx === 2) {
+    if (window.__glReady && glProg) {
+      gl.useProgram(glProg);
+      gl.uniform2f(glUniforms.res, cgl.width, cgl.height);
+      gl.uniform1f(glUniforms.time, t);
+      gl.uniform2f(glUniforms.mouse, smoothMouse.x, 1.0 - smoothMouse.y);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      ctx.clearRect(0, 0, W, H);
+    } else {
+      ctx.globalAlpha = 1; ctx.fillStyle = m.bg; ctx.fillRect(0, 0, W, H);
+      renderBlackHoleFallback(m, breath);
+    }
+    renderBlackHoleConstellation(m, breath);
+  } else {
+    ctx.globalAlpha = 1; ctx.fillStyle = m.bg; ctx.fillRect(0, 0, W, H);
+    if (curIdx === 0) renderOrbital(m, breath);
+    else if (curIdx === 1) renderRain(m, breath);
+    else renderPrism(m, breath);
+  }
+
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.r += curIdx === 1 ? 1.3 : 2.8;
+    rp.a *= curIdx === 1 ? 0.978 : 0.96;
+    if (rp.r >= rp.maxR || rp.a < 0.02) { ripples.splice(i, 1); continue; }
+    ctx.globalAlpha = rp.a; ctx.strokeStyle = m.acc; ctx.lineWidth = 1.05;
+    if (curIdx === 1) {
+      ctx.beginPath(); ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.25, 0, 0, Math.PI * 2); ctx.stroke();
+      if (rp.r > 18) {
+        ctx.globalAlpha = rp.a * 0.45;
+        ctx.beginPath(); ctx.ellipse(rp.x, rp.y, rp.r * 0.62, rp.r * 0.155, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else {
+      ctx.beginPath(); ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

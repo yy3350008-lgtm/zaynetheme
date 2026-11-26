@@ -1,0 +1,21 @@
+{
+  "id": "zaynetheme",
+  "name": "ZayneTheme",
+  "description": "Five dark cosmic themes paired with interactive WebGL and Canvas Living Cosmos engines for Paseo.",
+  "icon": "assets/icon.png",
+  "media": [
+    "assets/preview-1.png",
+    "assets/preview-2.png",
+    "assets/preview-3.png",
+    "assets/preview-4.png"
+  ],
+  "requirements": {
+    "paseo": ">=0.17.4"
+  },
+  "translations": {
+    "zh-CN": {
+      "name": "ZayneTheme 深空主题",
+      "description": "五款深空暗黑主题搭配 WebGL / Canvas 动态宇宙背景引擎。"
+    }
+  }
+}
